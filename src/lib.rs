@@ -31,7 +31,9 @@
 
 pub mod crypto;
 pub mod error;
+pub mod key;
 
 // Re-export main types
 pub use crypto::{HashAlgorithm, Sha256, Sha384, TranscriptHash};
 pub use error::{AlertDescription, TlsError};
+pub use key::{KeyShare, NamedGroup, X25519KeyPair};
