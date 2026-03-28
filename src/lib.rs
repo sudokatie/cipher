@@ -29,7 +29,9 @@
 //! }
 //! ```
 
+pub mod crypto;
 pub mod error;
 
 // Re-export main types
+pub use crypto::{HashAlgorithm, Sha256, Sha384, TranscriptHash};
 pub use error::{AlertDescription, TlsError};
