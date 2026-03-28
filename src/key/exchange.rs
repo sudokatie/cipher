@@ -2,7 +2,7 @@
 
 use crate::error::TlsError;
 use rand::rngs::OsRng;
-use x25519_dalek::{EphemeralSecret, PublicKey, SharedSecret};
+use x25519_dalek::{EphemeralSecret, PublicKey};
 
 /// Named groups for key exchange (RFC 8446 Section 4.2.7).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
