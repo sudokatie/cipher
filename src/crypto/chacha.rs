@@ -42,7 +42,10 @@ impl Aead for ChaCha20Poly1305 {
         }
 
         let nonce = Nonce::from_slice(nonce);
-        let payload = chacha20poly1305::aead::Payload { msg: plaintext, aad };
+        let payload = chacha20poly1305::aead::Payload {
+            msg: plaintext,
+            aad,
+        };
 
         self.cipher
             .encrypt(nonce, payload)
@@ -88,7 +91,10 @@ mod tests {
         let plaintext = b"hello world";
 
         let ciphertext = cipher.seal(&nonce, aad, plaintext).unwrap();
-        assert_eq!(ciphertext.len(), plaintext.len() + ChaCha20Poly1305::TAG_LEN);
+        assert_eq!(
+            ciphertext.len(),
+            plaintext.len() + ChaCha20Poly1305::TAG_LEN
+        );
 
         let decrypted = cipher.open(&nonce, aad, &ciphertext).unwrap();
         assert_eq!(decrypted, plaintext);

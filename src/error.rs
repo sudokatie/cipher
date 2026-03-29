@@ -7,7 +7,7 @@ use thiserror::Error;
 pub enum TlsError {
     /// I/O error during read/write.
     #[error("I/O error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(String),
 
     /// Handshake failed.
     #[error("handshake failed: {0}")]
@@ -31,21 +31,19 @@ pub enum TlsError {
 
     /// Unexpected message type.
     #[error("unexpected message: expected {expected}, got {actual}")]
-    UnexpectedMessage {
-        expected: String,
-        actual: String,
-    },
+    UnexpectedMessage { expected: String, actual: String },
 
     /// Buffer too small.
     #[error("buffer too small: need {need}, have {have}")]
-    BufferTooSmall {
-        need: usize,
-        have: usize,
-    },
+    BufferTooSmall { need: usize, have: usize },
 
     /// Invalid state for operation.
     #[error("invalid state: {0}")]
     InvalidState(String),
+
+    /// Configuration error.
+    #[error("config error: {0}")]
+    Config(String),
 }
 
 /// TLS alert descriptions per RFC 8446.
@@ -250,7 +248,10 @@ mod tests {
     fn test_alert_description() {
         let alert = AlertDescription::HandshakeFailure;
         assert_eq!(alert.to_u8(), 40);
-        assert_eq!(AlertDescription::from_u8(40), AlertDescription::HandshakeFailure);
+        assert_eq!(
+            AlertDescription::from_u8(40),
+            AlertDescription::HandshakeFailure
+        );
         assert_eq!(format!("{}", alert), "handshake_failure");
 
         let unknown = AlertDescription::from_u8(255);

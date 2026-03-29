@@ -170,9 +170,14 @@ mod tests {
         let cipher = Aes128Gcm::new(&test_key()).unwrap();
         let plaintext = b"Hello, TLS 1.3!";
 
-        let encrypted =
-            TlsCiphertext::encrypt(ContentType::ApplicationData, plaintext, &cipher, &test_iv(), 0)
-                .unwrap();
+        let encrypted = TlsCiphertext::encrypt(
+            ContentType::ApplicationData,
+            plaintext,
+            &cipher,
+            &test_iv(),
+            0,
+        )
+        .unwrap();
 
         let (decrypted, len) =
             TlsCiphertext::decrypt::<Aes128Gcm>(&encrypted, &cipher, &test_iv(), 0).unwrap();
@@ -208,13 +213,17 @@ mod tests {
         let cipher2 = Aes128Gcm::new(&[0x99; 16]).unwrap();
         let plaintext = b"secret";
 
-        let encrypted =
-            TlsCiphertext::encrypt(ContentType::ApplicationData, plaintext, &cipher1, &test_iv(), 0)
-                .unwrap();
+        let encrypted = TlsCiphertext::encrypt(
+            ContentType::ApplicationData,
+            plaintext,
+            &cipher1,
+            &test_iv(),
+            0,
+        )
+        .unwrap();
 
         // Decrypting with wrong key should fail
-        let result =
-            TlsCiphertext::decrypt::<Aes128Gcm>(&encrypted, &cipher2, &test_iv(), 0);
+        let result = TlsCiphertext::decrypt::<Aes128Gcm>(&encrypted, &cipher2, &test_iv(), 0);
         assert!(result.is_err());
     }
 
@@ -223,12 +232,22 @@ mod tests {
         let cipher = Aes128Gcm::new(&test_key()).unwrap();
         let plaintext = b"data";
 
-        let enc0 =
-            TlsCiphertext::encrypt(ContentType::ApplicationData, plaintext, &cipher, &test_iv(), 0)
-                .unwrap();
-        let enc1 =
-            TlsCiphertext::encrypt(ContentType::ApplicationData, plaintext, &cipher, &test_iv(), 1)
-                .unwrap();
+        let enc0 = TlsCiphertext::encrypt(
+            ContentType::ApplicationData,
+            plaintext,
+            &cipher,
+            &test_iv(),
+            0,
+        )
+        .unwrap();
+        let enc1 = TlsCiphertext::encrypt(
+            ContentType::ApplicationData,
+            plaintext,
+            &cipher,
+            &test_iv(),
+            1,
+        )
+        .unwrap();
 
         // Same plaintext with different seq nums produces different ciphertext
         assert_ne!(enc0, enc1);
@@ -243,9 +262,14 @@ mod tests {
         let cipher = Aes128Gcm::new(&test_key()).unwrap();
         let plaintext = b"test";
 
-        let wire =
-            TlsCiphertext::encrypt(ContentType::ApplicationData, plaintext, &cipher, &test_iv(), 0)
-                .unwrap();
+        let wire = TlsCiphertext::encrypt(
+            ContentType::ApplicationData,
+            plaintext,
+            &cipher,
+            &test_iv(),
+            0,
+        )
+        .unwrap();
 
         // Check header
         assert_eq!(wire[0], 23); // ApplicationData

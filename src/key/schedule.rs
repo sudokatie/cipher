@@ -3,8 +3,8 @@
 //! Implements the key derivation schedule from RFC 8446 Section 7.1.
 
 use crate::crypto::{
-    derive_secret_sha256, hkdf_expand_label_sha256, hkdf_extract_sha256,
-    Sha256 as Sha256Hash, HashAlgorithm,
+    derive_secret_sha256, hkdf_expand_label_sha256, hkdf_extract_sha256, HashAlgorithm,
+    Sha256 as Sha256Hash,
 };
 
 /// TLS 1.3 Key Schedule state.
@@ -17,6 +17,22 @@ pub struct KeySchedule {
 
     /// Current stage
     stage: KeyScheduleStage,
+
+    // Derived keys (populated during handshake)
+    /// Client write key (handshake or application)
+    pub client_write_key: Vec<u8>,
+    /// Client write IV
+    pub client_write_iv: Vec<u8>,
+    /// Server write key
+    pub server_write_key: Vec<u8>,
+    /// Server write IV  
+    pub server_write_iv: Vec<u8>,
+    /// Client finished key
+    pub client_finished_key: Vec<u8>,
+    /// Server finished key
+    pub server_finished_key: Vec<u8>,
+    /// Exporter master secret (for key exporters)
+    pub exporter_master_secret: Vec<u8>,
 }
 
 /// Stage of the key schedule.
@@ -32,12 +48,41 @@ pub enum KeyScheduleStage {
     MasterSecret,
 }
 
+impl Default for KeySchedule {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl KeySchedule {
     /// Create a new key schedule.
+    pub fn new() -> Self {
+        KeySchedule {
+            current_secret: [0u8; 32],
+            stage: KeyScheduleStage::Initial,
+            client_write_key: Vec::new(),
+            client_write_iv: Vec::new(),
+            server_write_key: Vec::new(),
+            server_write_iv: Vec::new(),
+            client_finished_key: Vec::new(),
+            server_finished_key: Vec::new(),
+            exporter_master_secret: Vec::new(),
+        }
+    }
+
+    /// Derive early secret from optional PSK.
+    pub fn derive_early_secret(&mut self, psk: Option<&[u8]>) {
+        let zero_salt = [0u8; 32];
+        let ikm = psk.unwrap_or(&[0u8; 32]);
+        self.current_secret = hkdf_extract_sha256(&zero_salt, ikm);
+        self.stage = KeyScheduleStage::EarlySecret;
+    }
+
+    /// Create a new key schedule with PSK.
     ///
     /// Starts at the Initial stage with the early secret derived from
     /// an optional PSK (or zeros if no PSK).
-    pub fn new(psk: Option<&[u8]>) -> Self {
+    pub fn with_psk(psk: Option<&[u8]>) -> Self {
         let zero_salt = [0u8; 32];
         let ikm = psk.unwrap_or(&[0u8; 32]);
 
@@ -46,6 +91,13 @@ impl KeySchedule {
         KeySchedule {
             current_secret: early_secret,
             stage: KeyScheduleStage::EarlySecret,
+            client_write_key: Vec::new(),
+            client_write_iv: Vec::new(),
+            server_write_key: Vec::new(),
+            server_write_iv: Vec::new(),
+            client_finished_key: Vec::new(),
+            server_finished_key: Vec::new(),
+            exporter_master_secret: Vec::new(),
         }
     }
 
@@ -56,8 +108,67 @@ impl KeySchedule {
 
     /// Derive the handshake secret from ECDHE shared secret.
     ///
+    /// Also derives handshake traffic keys.
+    pub fn derive_handshake_secret(&mut self, ecdhe_secret: &[u8], transcript_hash: &[u8]) {
+        // Derive-Secret(Early Secret, "derived", "")
+        let empty_hash = Sha256Hash::hash(&[]);
+        let derived = derive_secret_sha256(&self.current_secret, "derived", &empty_hash);
+
+        // HKDF-Extract(Derived, ECDHE)
+        let handshake_secret = hkdf_extract_sha256(&derived, ecdhe_secret);
+        self.current_secret = handshake_secret;
+        self.stage = KeyScheduleStage::HandshakeSecret;
+
+        // Derive handshake traffic secrets
+        let client_hs_secret =
+            derive_secret_sha256(&self.current_secret, "c hs traffic", transcript_hash);
+        let server_hs_secret =
+            derive_secret_sha256(&self.current_secret, "s hs traffic", transcript_hash);
+
+        // Derive keys and IVs (16-byte key for AES-128-GCM)
+        self.client_write_key = derive_traffic_key(&client_hs_secret, 16);
+        self.client_write_iv = derive_traffic_iv(&client_hs_secret).to_vec();
+        self.server_write_key = derive_traffic_key(&server_hs_secret, 16);
+        self.server_write_iv = derive_traffic_iv(&server_hs_secret).to_vec();
+
+        // Derive finished keys
+        self.client_finished_key = derive_finished_key(&client_hs_secret).to_vec();
+        self.server_finished_key = derive_finished_key(&server_hs_secret).to_vec();
+    }
+
+    /// Derive application traffic secrets and keys.
+    pub fn derive_application_secret(&mut self, transcript_hash: &[u8]) {
+        // First derive master secret
+        let empty_hash = Sha256Hash::hash(&[]);
+        let derived = derive_secret_sha256(&self.current_secret, "derived", &empty_hash);
+        let master_secret = hkdf_extract_sha256(&derived, &[0u8; 32]);
+        self.current_secret = master_secret;
+        self.stage = KeyScheduleStage::MasterSecret;
+
+        // Derive application traffic secrets
+        let client_app_secret =
+            derive_secret_sha256(&self.current_secret, "c ap traffic", transcript_hash);
+        let server_app_secret =
+            derive_secret_sha256(&self.current_secret, "s ap traffic", transcript_hash);
+
+        // Derive exporter master secret
+        let exp_master = derive_secret_sha256(&self.current_secret, "exp master", transcript_hash);
+        self.exporter_master_secret = exp_master.to_vec();
+
+        // Derive keys and IVs
+        self.client_write_key = derive_traffic_key(&client_app_secret, 16);
+        self.client_write_iv = derive_traffic_iv(&client_app_secret).to_vec();
+        self.server_write_key = derive_traffic_key(&server_app_secret, 16);
+        self.server_write_iv = derive_traffic_iv(&server_app_secret).to_vec();
+    }
+
+    /// Derive the handshake secret from ECDHE shared secret (legacy API).
+    ///
     /// Must be called after new() and before derive_master_secret().
-    pub fn derive_handshake_secret(&mut self, ecdhe_secret: &[u8]) -> Result<(), &'static str> {
+    pub fn derive_handshake_secret_legacy(
+        &mut self,
+        ecdhe_secret: &[u8],
+    ) -> Result<(), &'static str> {
         if self.stage != KeyScheduleStage::EarlySecret {
             return Err("must be at EarlySecret stage");
         }
@@ -97,7 +208,10 @@ impl KeySchedule {
     }
 
     /// Derive client handshake traffic secret.
-    pub fn client_handshake_traffic_secret(&self, transcript_hash: &[u8]) -> Result<[u8; 32], &'static str> {
+    pub fn client_handshake_traffic_secret(
+        &self,
+        transcript_hash: &[u8],
+    ) -> Result<[u8; 32], &'static str> {
         if self.stage != KeyScheduleStage::HandshakeSecret {
             return Err("must be at HandshakeSecret stage");
         }
@@ -110,7 +224,10 @@ impl KeySchedule {
     }
 
     /// Derive server handshake traffic secret.
-    pub fn server_handshake_traffic_secret(&self, transcript_hash: &[u8]) -> Result<[u8; 32], &'static str> {
+    pub fn server_handshake_traffic_secret(
+        &self,
+        transcript_hash: &[u8],
+    ) -> Result<[u8; 32], &'static str> {
         if self.stage != KeyScheduleStage::HandshakeSecret {
             return Err("must be at HandshakeSecret stage");
         }
@@ -123,7 +240,10 @@ impl KeySchedule {
     }
 
     /// Derive client application traffic secret.
-    pub fn client_application_traffic_secret(&self, transcript_hash: &[u8]) -> Result<[u8; 32], &'static str> {
+    pub fn client_application_traffic_secret(
+        &self,
+        transcript_hash: &[u8],
+    ) -> Result<[u8; 32], &'static str> {
         if self.stage != KeyScheduleStage::MasterSecret {
             return Err("must be at MasterSecret stage");
         }
@@ -136,7 +256,10 @@ impl KeySchedule {
     }
 
     /// Derive server application traffic secret.
-    pub fn server_application_traffic_secret(&self, transcript_hash: &[u8]) -> Result<[u8; 32], &'static str> {
+    pub fn server_application_traffic_secret(
+        &self,
+        transcript_hash: &[u8],
+    ) -> Result<[u8; 32], &'static str> {
         if self.stage != KeyScheduleStage::MasterSecret {
             return Err("must be at MasterSecret stage");
         }
@@ -176,11 +299,11 @@ mod tests {
 
     #[test]
     fn test_key_schedule_progression() {
-        let mut ks = KeySchedule::new(None);
+        let mut ks = KeySchedule::with_psk(None);
         assert_eq!(ks.stage(), KeyScheduleStage::EarlySecret);
 
         let ecdhe = [0x42u8; 32];
-        ks.derive_handshake_secret(&ecdhe).unwrap();
+        ks.derive_handshake_secret_legacy(&ecdhe).unwrap();
         assert_eq!(ks.stage(), KeyScheduleStage::HandshakeSecret);
 
         ks.derive_master_secret().unwrap();
@@ -189,9 +312,9 @@ mod tests {
 
     #[test]
     fn test_handshake_traffic_secrets() {
-        let mut ks = KeySchedule::new(None);
+        let mut ks = KeySchedule::with_psk(None);
         let ecdhe = [0x42u8; 32];
-        ks.derive_handshake_secret(&ecdhe).unwrap();
+        ks.derive_handshake_secret_legacy(&ecdhe).unwrap();
 
         let transcript = [0u8; 32];
         let client_secret = ks.client_handshake_traffic_secret(&transcript).unwrap();
@@ -204,9 +327,9 @@ mod tests {
 
     #[test]
     fn test_application_traffic_secrets() {
-        let mut ks = KeySchedule::new(None);
+        let mut ks = KeySchedule::with_psk(None);
         let ecdhe = [0x42u8; 32];
-        ks.derive_handshake_secret(&ecdhe).unwrap();
+        ks.derive_handshake_secret_legacy(&ecdhe).unwrap();
         ks.derive_master_secret().unwrap();
 
         let transcript = [0u8; 32];
@@ -236,11 +359,22 @@ mod tests {
     }
 
     #[test]
-    fn test_wrong_stage_errors() {
-        let ks = KeySchedule::new(None);
+    fn test_new_api() {
+        let mut ks = KeySchedule::new();
+        assert_eq!(ks.stage(), KeyScheduleStage::Initial);
 
-        // Can't derive application secrets at EarlySecret stage
-        let result = ks.client_application_traffic_secret(&[0u8; 32]);
-        assert!(result.is_err());
+        ks.derive_early_secret(None);
+        assert_eq!(ks.stage(), KeyScheduleStage::EarlySecret);
+
+        let ecdhe = [0x42u8; 32];
+        let transcript = [0x00u8; 32];
+        ks.derive_handshake_secret(&ecdhe, &transcript);
+        assert_eq!(ks.stage(), KeyScheduleStage::HandshakeSecret);
+
+        // Keys should be populated
+        assert!(!ks.client_write_key.is_empty());
+        assert!(!ks.server_write_key.is_empty());
+        assert!(!ks.client_finished_key.is_empty());
+        assert!(!ks.server_finished_key.is_empty());
     }
 }

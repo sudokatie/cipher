@@ -160,7 +160,10 @@ impl RecordLayer {
     /// Decrypt a received record.
     ///
     /// Returns the content type and plaintext.
-    pub fn decrypt_record(&mut self, data: &[u8]) -> Result<(ContentType, Vec<u8>, usize), TlsError> {
+    pub fn decrypt_record(
+        &mut self,
+        data: &[u8],
+    ) -> Result<(ContentType, Vec<u8>, usize), TlsError> {
         match &self.read_keys {
             None => {
                 // No decryption - parse as plaintext
@@ -196,6 +199,61 @@ impl RecordLayer {
                 Ok((content_type, plaintext, len))
             }
         }
+    }
+}
+
+impl RecordLayer {
+    /// Enable encryption using keys from the key schedule.
+    pub fn enable_encryption(
+        &mut self,
+        key_schedule: &crate::key::KeySchedule,
+        is_server: bool,
+    ) -> Result<(), TlsError> {
+        // For TLS 1.3, use AES-128-GCM as default
+        let cipher = RecordCipher::Aes128Gcm;
+
+        if is_server {
+            // Server writes with server keys, reads with client keys
+            self.set_write_keys(TrafficKeys::new(
+                key_schedule.server_write_key.clone(),
+                key_schedule.server_write_iv.clone(),
+                cipher,
+            ));
+            self.set_read_keys(TrafficKeys::new(
+                key_schedule.client_write_key.clone(),
+                key_schedule.client_write_iv.clone(),
+                cipher,
+            ));
+        } else {
+            // Client writes with client keys, reads with server keys
+            self.set_write_keys(TrafficKeys::new(
+                key_schedule.client_write_key.clone(),
+                key_schedule.client_write_iv.clone(),
+                cipher,
+            ));
+            self.set_read_keys(TrafficKeys::new(
+                key_schedule.server_write_key.clone(),
+                key_schedule.server_write_iv.clone(),
+                cipher,
+            ));
+        }
+
+        Ok(())
+    }
+
+    /// Encode a record for sending (alias for encrypt_record).
+    pub fn encode_record(
+        &mut self,
+        content_type: ContentType,
+        data: &[u8],
+    ) -> Result<Vec<u8>, TlsError> {
+        self.encrypt_record(content_type, data)
+    }
+
+    /// Decode a received record (alias for decrypt_record).
+    pub fn decode_record(&mut self, data: &[u8]) -> Result<(ContentType, Vec<u8>), TlsError> {
+        let (ct, plaintext, _) = self.decrypt_record(data)?;
+        Ok((ct, plaintext))
     }
 }
 
@@ -269,10 +327,14 @@ mod tests {
         assert_eq!(layer.read_sequence(), 0);
 
         // Encrypt increments write seq
-        let wire1 = layer.encrypt_record(ContentType::ApplicationData, b"a").unwrap();
+        let wire1 = layer
+            .encrypt_record(ContentType::ApplicationData, b"a")
+            .unwrap();
         assert_eq!(layer.write_sequence(), 1);
 
-        let wire2 = layer.encrypt_record(ContentType::ApplicationData, b"b").unwrap();
+        let wire2 = layer
+            .encrypt_record(ContentType::ApplicationData, b"b")
+            .unwrap();
         assert_eq!(layer.write_sequence(), 2);
 
         // Different sequence produces different ciphertext
@@ -291,7 +353,9 @@ mod tests {
         let mut layer = RecordLayer::new();
 
         // Start in plaintext
-        let wire1 = layer.encrypt_record(ContentType::Handshake, b"clienthello").unwrap();
+        let wire1 = layer
+            .encrypt_record(ContentType::Handshake, b"clienthello")
+            .unwrap();
         assert!(!layer.is_encrypting());
 
         // Transition to encrypted (simulating handshake completion)
@@ -305,7 +369,9 @@ mod tests {
 
         // Now encrypting
         assert!(layer.is_encrypting());
-        let wire2 = layer.encrypt_record(ContentType::ApplicationData, b"data").unwrap();
+        let wire2 = layer
+            .encrypt_record(ContentType::ApplicationData, b"data")
+            .unwrap();
 
         // wire1 is plaintext, wire2 is encrypted (different format)
         assert_eq!(wire1[0], 22); // Handshake

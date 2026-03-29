@@ -42,7 +42,10 @@ impl Aead for Aes128Gcm {
         }
 
         let nonce = Nonce::from_slice(nonce);
-        let payload = aes_gcm::aead::Payload { msg: plaintext, aad };
+        let payload = aes_gcm::aead::Payload {
+            msg: plaintext,
+            aad,
+        };
 
         self.cipher
             .encrypt(nonce, payload)
@@ -109,7 +112,10 @@ impl Aead for Aes256Gcm {
         }
 
         let nonce = Nonce::from_slice(nonce);
-        let payload = aes_gcm::aead::Payload { msg: plaintext, aad };
+        let payload = aes_gcm::aead::Payload {
+            msg: plaintext,
+            aad,
+        };
 
         self.cipher
             .encrypt(nonce, payload)

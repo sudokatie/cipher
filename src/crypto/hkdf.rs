@@ -100,11 +100,7 @@ pub fn hkdf_expand_label_sha384(
 ///
 /// Derive-Secret(Secret, Label, Messages) =
 ///     HKDF-Expand-Label(Secret, Label, Transcript-Hash(Messages), Hash.length)
-pub fn derive_secret_sha256(
-    secret: &[u8; 32],
-    label: &str,
-    transcript_hash: &[u8],
-) -> [u8; 32] {
+pub fn derive_secret_sha256(secret: &[u8; 32], label: &str, transcript_hash: &[u8]) -> [u8; 32] {
     let result = hkdf_expand_label_sha256(secret, label, transcript_hash, 32);
     let mut arr = [0u8; 32];
     arr.copy_from_slice(&result);
@@ -112,11 +108,7 @@ pub fn derive_secret_sha256(
 }
 
 /// Derive-Secret using SHA-384.
-pub fn derive_secret_sha384(
-    secret: &[u8; 48],
-    label: &str,
-    transcript_hash: &[u8],
-) -> [u8; 48] {
+pub fn derive_secret_sha384(secret: &[u8; 48], label: &str, transcript_hash: &[u8]) -> [u8; 48] {
     let result = hkdf_expand_label_sha384(secret, label, transcript_hash, 48);
     let mut arr = [0u8; 48];
     arr.copy_from_slice(&result);
