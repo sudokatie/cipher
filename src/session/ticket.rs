@@ -2,7 +2,7 @@
 
 use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
 use aes_gcm::aead::Aead;
-use rand::{Rng, RngCore};
+use rand::Rng;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Maximum ticket lifetime (7 days in seconds).
