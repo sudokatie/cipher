@@ -31,6 +31,7 @@
 //! ```
 
 pub mod alert;
+pub mod auth;
 pub mod cert;
 pub mod client;
 pub mod crypto;
@@ -44,6 +45,7 @@ pub mod session;
 
 // Re-export main types
 pub use alert::{Alert, AlertLevel};
+pub use auth::{AccessPolicy, AuthResult, ClientAuthenticator, ClientIdentity, PolicyAction, PolicyRule};
 pub use cert::{Certificate, CertificateValidator, TrustAnchor, ValidationError};
 pub use client::{async_connect, AsyncTlsClient, TlsClient, TlsClientConfig};
 pub use crypto::{HashAlgorithm, Sha256, Sha384, TranscriptHash};
