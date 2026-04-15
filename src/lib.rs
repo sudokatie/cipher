@@ -40,6 +40,7 @@ pub mod handshake;
 pub mod key;
 pub mod record;
 pub mod server;
+pub mod session;
 
 // Re-export main types
 pub use alert::{Alert, AlertLevel};
@@ -52,3 +53,4 @@ pub use handshake::{HandshakeRole, HandshakeState};
 pub use key::{KeyPair, KeySchedule, KeyShare, NamedGroup, P256KeyPair, X25519KeyPair};
 pub use record::{ContentType, RecordLayer, TlsPlaintext};
 pub use server::{AsyncTlsServer, TlsListener, TlsServer, TlsServerConfig};
+pub use session::{MemorySessionStore, NewSessionTicket, SessionStore, SessionTicket, TicketData};
